@@ -1,0 +1,35 @@
+{
+  "name": "webmcp-just-bash",
+  "version": "1.0.0",
+  "description": "100% functional client-side clone of vercel-labs/just-bash with Tailwind, HTMX, KDD, FastWebMCP, and webmcp.com compliance.",
+  "type": "module",
+  "homepage": "https://mauricioperera.github.io/webmcp-just-bash/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MauricioPerera/webmcp-just-bash.git"
+  },
+  "scripts": {
+    "test": "node tests/run_all_tests.js",
+    "validate:contracts": "python scripts/validate_contracts.py knowledge/contracts",
+    "validate:okf": "python scripts/validate_okf.py knowledge",
+    "validate:specs": "python scripts/validate_specs.py specs",
+    "validate": "npm run validate:contracts && npm run validate:okf && npm run validate:specs",
+    "check": "npm run test && npm run validate",
+    "start": "npx serve . -p 8080"
+  },
+  "keywords": [
+    "bash",
+    "terminal",
+    "just-bash",
+    "htmx",
+    "tailwind",
+    "kdd",
+    "okf",
+    "ccdd",
+    "fastwebmcp",
+    "webmcp",
+    "client-side"
+  ],
+  "author": "Mauricio Perera",
+  "license": "Apache-2.0"
+}
