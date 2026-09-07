@@ -7,6 +7,7 @@ const testSuites = [
   'tests/test_terminal.js',
   'tests/test_agent.js',
   'tests/test_custom_commands.js',
+  'tests/test_cloudflare_temporary.js',
   'tests/e2e_stress_test.js'
 ];
 

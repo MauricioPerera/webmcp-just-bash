@@ -2,6 +2,7 @@
  * bash-runtime.js - Pure Client-Side Bash Execution Engine
  * Conforms to CCDD Contract 02 (contract-02-bash-engine.md)
  */
+import { CloudflareTemporaryDeployer } from './cloudflare-temporary.js';
 
 export class BashRuntime {
   constructor(vfs, options = {}) {
@@ -942,7 +943,7 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
             return { stdout: `${candidate}\n`, stderr: '', exitCode: 0 };
           }
         }
-        if (['ls', 'cat', 'echo', 'grep', 'wc', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'awk', 'sed', 'jq', 'sh', 'bash', 'alias', 'defcmd'].includes(target)) {
+        if (['ls', 'cat', 'echo', 'grep', 'wc', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'awk', 'sed', 'jq', 'sh', 'bash', 'alias', 'defcmd', 'wrangler'].includes(target)) {
           return { stdout: `/bin/${target}\n`, stderr: '', exitCode: 0 };
         }
         return { stdout: '', stderr: `${target} not found\n`, exitCode: 1 };
@@ -961,12 +962,118 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
   Scripting & Custom:
     sh <script>, bash <script>, source <script>, . <script>,
     alias [name=val], unalias <name>, defcmd <name> [--js] <code>
-  Custom Commands:
-    about, install, github, webmcp, agent <query>
+  Cloud & Autonomous Agents:
+    wrangler deploy --temporary [script.js], agent <query>
+  Platform Commands:
+    about, install, github, webmcp
 
 Type 'help' or 'defcmd' for custom commands.\n`,
           stderr: '',
           exitCode: 0
+        };
+      }
+
+      case 'wrangler': {
+        if (!args.length || args[0] === '--help' || args[0] === '-h') {
+          return {
+            stdout: `Cloudflare Wrangler CLI (Autonomous Agent & Client-Side Sandbox Edition)
+
+Usage:
+  wrangler deploy --temporary [script.js]    Deploy worker to a 60-min temporary Cloudflare account
+  wrangler whoami                           Display current credentials state
+
+Options:
+  --temporary    Provision an unauthenticated throwaway preview account and return claim URL
+\n`,
+            stderr: '',
+            exitCode: 0
+          };
+        }
+
+        if (args[0] === 'whoami') {
+          return {
+            stdout: `🔓 Unauthenticated Agent Sandbox Mode (Zero permanent credentials stored)
+Ready for: wrangler deploy --temporary\n`,
+            stderr: '',
+            exitCode: 0
+          };
+        }
+
+        if (args[0] === 'deploy') {
+          if (!args.includes('--temporary')) {
+            return {
+              stdout: '',
+              stderr: `wrangler: in agent sandbox mode, please specify '--temporary' to deploy to a temporary Cloudflare preview account.\nUsage: wrangler deploy --temporary [file.js]\n`,
+              exitCode: 1
+            };
+          }
+
+          let scriptFile = args.find(a => !a.startsWith('-') && a !== 'deploy');
+          if (!scriptFile) {
+            if (this.vfs.exists(this.vfs.resolvePath('index.js', this.cwd))) {
+              scriptFile = 'index.js';
+            } else if (this.vfs.exists(this.vfs.resolvePath('worker.js', this.cwd))) {
+              scriptFile = 'worker.js';
+            } else {
+              return {
+                stdout: '',
+                stderr: 'wrangler deploy: missing entry script (could not find index.js or worker.js in current directory)\n',
+                exitCode: 1
+              };
+            }
+          }
+
+          const targetPath = this.vfs.resolvePath(scriptFile, this.cwd);
+          if (!this.vfs.exists(targetPath)) {
+            return { stdout: '', stderr: `wrangler: ${scriptFile}: No such file or directory\n`, exitCode: 1 };
+          }
+
+          const scriptCode = this.vfs.readFile(targetPath);
+          let scriptBaseName = scriptFile.split('/').pop().replace(/\.[^/.]+$/, '');
+          if (['api', 'app', 'test', 'admin', 'auth', 'login', 'dev'].includes(scriptBaseName.toLowerCase())) {
+            scriptBaseName = `agent-${scriptBaseName}`;
+          }
+          const scriptName = scriptBaseName || 'agent-worker';
+
+          try {
+            let apiBaseUrl = 'https://api.cloudflare.com/client/v4';
+            if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('pages.dev')) {
+              apiBaseUrl = '/api/cf-proxy';
+            }
+
+            const deployer = new CloudflareTemporaryDeployer({ apiBaseUrl });
+            const result = await deployer.deployTemporary({
+              scriptName,
+              code: scriptCode
+            });
+
+            return {
+              stdout: `
+✨ Worker desplegado con éxito en Cloudflare Temporary Account!
+─────────────────────────────────────────────────────────────────────────────
+📦 Worker Name:  ${result.scriptName}
+🏢 Account Name: ${result.accountName} (${result.accountId})
+🌍 Live URL:     ${result.liveUrl} (Activo durante 60 minutos)
+🔑 Claim URL:    ${result.claimUrl}
+─────────────────────────────────────────────────────────────────────────────
+💡 Puedes transferir este Worker a tu cuenta permanente de Cloudflare abriendo la Claim URL en tu navegador.
+\n`,
+              stderr: '',
+              exitCode: 0
+            };
+          } catch (err) {
+            return {
+              stdout: '',
+              stderr: `wrangler deploy error: ${err.message}\n`,
+              exitCode: 1
+            };
+          }
+        }
+
+        return {
+          stdout: '',
+          stderr: `wrangler: command '${args[0]}' not recognized. Run 'wrangler --help' for available commands.\n`,
+          exitCode: 1
         };
       }
 

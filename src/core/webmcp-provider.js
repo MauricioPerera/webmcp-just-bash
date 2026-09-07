@@ -3,6 +3,7 @@
  * Conforms to CCDD Contract 03 (contract-03-webmcp-bridge.md)
  * Standards: https://webmcp.com & https://mauricioperera.github.io/fastwebmcp/
  */
+import { CloudflareTemporaryDeployer } from './cloudflare-temporary.js';
 
 export class WebMCPProvider {
   constructor(vfs, bash) {
@@ -357,6 +358,33 @@ export class WebMCPProvider {
           aliases,
           binExecutables: binFiles
         };
+      }
+    });
+
+    // 10. cloudflare_deploy_temporary
+    this.registerImperativeTool({
+      name: 'cloudflare_deploy_temporary',
+      description: 'Provision an ephemeral Cloudflare preview account and deploy a live Cloudflare Worker for 60 minutes without requiring login or API tokens. Returns the live URL and claim URL.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          script: { type: 'string', description: 'JavaScript code of the Cloudflare Worker to deploy' },
+          name: { type: 'string', description: 'Optional name for the worker (e.g. "my-api")' }
+        },
+        required: ['script']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      execute: async ({ script, name = 'agent-worker' }) => {
+        let apiBaseUrl = 'https://api.cloudflare.com/client/v4';
+        if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('pages.dev')) {
+          apiBaseUrl = '/api/cf-proxy';
+        }
+        const deployer = new CloudflareTemporaryDeployer({ apiBaseUrl });
+        const result = await deployer.deployTemporary({
+          scriptName: name,
+          code: script
+        });
+        return result;
       }
     });
   }

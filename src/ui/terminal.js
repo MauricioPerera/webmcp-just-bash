@@ -98,7 +98,7 @@ export class LiteTerminal {
       'find', 'github', 'grep', 'head', 'help', 'history', 'install', 'jq', 'ls',
       'mkdir', 'mv', 'printf', 'pwd', 'rm', 'sed', 'seq', 'sh', 'sleep', 'sort',
       'source', 'stat', 'tail', 'touch', 'tr', 'tree', 'true', 'unalias', 'uniq',
-      'wc', 'webmcp', 'which', 'whoami'
+      'wc', 'webmcp', 'which', 'whoami', 'wrangler'
     ]);
 
     if (this.bash) {
