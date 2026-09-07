@@ -231,6 +231,8 @@
         <button onclick="quickRunCommand('tree')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">tree</button>
         <button onclick="quickRunCommand('cat package.json | jq .dependencies')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">jq .dependencies</button>
         <button onclick="quickRunCommand('webmcp')" class="px-2.5 py-1 rounded bg-teal-950/70 border border-teal-700 text-teal-300 hover:bg-teal-900 transition">webmcp</button>
+        <button onclick="quickRunCommand('alias ll=\'ls -la\' &amp;&amp; ll')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">alias ll</button>
+        <button onclick="quickRunCommand('defcmd greet \'echo Hello $1! Welcome to just-bash.\' &amp;&amp; greet Developer')" class="px-2.5 py-1 rounded bg-purple-950/70 border border-purple-700 text-purple-300 hover:bg-purple-900 transition">defcmd greet</button>
         <button onclick="quickRunCommand('agent &quot;What is just-bash and what tools are exposed?&quot;')" class="px-2.5 py-1 rounded bg-cyan-950/70 border border-cyan-700 text-cyan-300 hover:bg-cyan-900 transition">
           agent &ldquo;What is just-bash?&rdquo;
         </button>

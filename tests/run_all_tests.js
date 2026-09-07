@@ -6,6 +6,7 @@ const testSuites = [
   'tests/test_webmcp.js',
   'tests/test_terminal.js',
   'tests/test_agent.js',
+  'tests/test_custom_commands.js',
   'tests/e2e_stress_test.js'
 ];
 

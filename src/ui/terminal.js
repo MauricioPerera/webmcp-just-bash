@@ -92,17 +92,34 @@ export class LiteTerminal {
   getCompletions(input) {
     const trimmed = input.trimStart();
     const parts = trimmed.split(/\s+/);
-    const builtins = [
-      'about', 'agent', 'awk', 'base64', 'cat', 'cd', 'clear', 'cp',
-      'cut', 'date', 'echo', 'env', 'export', 'false', 'find', 'github',
-      'grep', 'head', 'help', 'history', 'install', 'jq', 'ls', 'mkdir',
-      'mv', 'printf', 'pwd', 'rm', 'sed', 'seq', 'sleep', 'sort', 'stat',
-      'tail', 'touch', 'tr', 'tree', 'true', 'uniq', 'wc', 'webmcp', 'which', 'whoami'
-    ];
+    const builtins = new Set([
+      'about', 'agent', 'alias', 'awk', 'base64', 'bash', 'cat', 'cd', 'chmod',
+      'clear', 'cp', 'cut', 'date', 'defcmd', 'echo', 'env', 'export', 'false',
+      'find', 'github', 'grep', 'head', 'help', 'history', 'install', 'jq', 'ls',
+      'mkdir', 'mv', 'printf', 'pwd', 'rm', 'sed', 'seq', 'sh', 'sleep', 'sort',
+      'source', 'stat', 'tail', 'touch', 'tr', 'tree', 'true', 'unalias', 'uniq',
+      'wc', 'webmcp', 'which', 'whoami'
+    ]);
+
+    if (this.bash) {
+      if (this.bash.customCommands) {
+        for (const k of this.bash.customCommands.keys()) builtins.add(k);
+      }
+      if (this.bash.aliases) {
+        for (const k of this.bash.aliases.keys()) builtins.add(k);
+      }
+    }
+    if (this.vfs) {
+      try {
+        if (this.vfs.exists('/bin')) {
+          for (const f of this.vfs.readDir('/bin')) builtins.add(f);
+        }
+      } catch (e) {}
+    }
 
     if (parts.length <= 1 && !trimmed.endsWith(' ')) {
       const prefix = parts[0] || '';
-      return builtins.filter(c => c.startsWith(prefix));
+      return Array.from(builtins).filter(c => c.startsWith(prefix)).sort();
     }
 
     // Path completions from VFS

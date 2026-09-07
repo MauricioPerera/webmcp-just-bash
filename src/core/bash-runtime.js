@@ -218,24 +218,31 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     const tokens = this._tokenize(commandLine);
     const statements = this._parseStatements(tokens);
 
-    let lastResult = { stdout: '', stderr: '', exitCode: 0 };
+    let totalStdout = '';
+    let totalStderr = '';
+    let lastExitCode = 0;
 
     for (const stmt of statements) {
-      if (stmt.connector === '&&' && lastResult.exitCode !== 0) continue;
-      if (stmt.connector === '||' && lastResult.exitCode === 0) continue;
+      if (stmt.connector === '&&' && lastExitCode !== 0) continue;
+      if (stmt.connector === '||' && lastExitCode === 0) continue;
 
       const pipelineStages = this._splitPipeline(stmt.tokens);
       let pipeStdin = '';
+      let stageRes = { stdout: '', stderr: '', exitCode: 0 };
 
       for (let i = 0; i < pipelineStages.length; i++) {
         const stageTokens = pipelineStages[i];
-        lastResult = await this._executeSingleStage(stageTokens, pipeStdin);
-        pipeStdin = lastResult.stdout;
-        this.lastExitCode = lastResult.exitCode;
+        stageRes = await this._executeSingleStage(stageTokens, pipeStdin);
+        pipeStdin = stageRes.stdout;
+        this.lastExitCode = stageRes.exitCode;
       }
+
+      totalStdout += stageRes.stdout;
+      totalStderr += stageRes.stderr;
+      lastExitCode = stageRes.exitCode;
     }
 
-    return lastResult;
+    return { stdout: totalStdout, stderr: totalStderr, exitCode: lastExitCode };
   }
 
   async _executeSingleStage(tokens, stdin = '') {
@@ -270,12 +277,22 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
       return { stdout: '', stderr: '', exitCode: 0 };
     }
 
-    const cmdName = cleanTokens[0];
-    const args = cleanTokens.slice(1);
+    let cmdName = cleanTokens[0];
+    let args = cleanTokens.slice(1);
+
+    // 1. Alias expansion
+    if (this.aliases && this.aliases.has(cmdName)) {
+      const aliasVal = this.aliases.get(cmdName);
+      const aliasTokens = this._tokenize(aliasVal);
+      if (aliasTokens.length > 0) {
+        cmdName = aliasTokens[0];
+        args = aliasTokens.slice(1).concat(args);
+      }
+    }
 
     let res;
     if (this.customCommands.has(cmdName)) {
-      res = await this.customCommands.get(cmdName)(args, { stdin, cwd: this.cwd, env: this.env });
+      res = await this.customCommands.get(cmdName)(args, { stdin, cwd: this.cwd, env: this.env, vfs: this.vfs, bash: this });
     } else {
       res = await this._runBuiltin(cmdName, args, stdin);
     }
@@ -746,9 +763,186 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         return { stdout: encoded + '\n', stderr: '', exitCode: 0 };
       }
 
+      case 'alias': {
+        if (args.length === 0) {
+          if (!this.aliases || this.aliases.size === 0) {
+            return { stdout: '', stderr: '', exitCode: 0 };
+          }
+          let out = '';
+          for (const [name, val] of this.aliases.entries()) {
+            out += `alias ${name}='${val}'\n`;
+          }
+          return { stdout: out, stderr: '', exitCode: 0 };
+        }
+
+        for (const arg of args) {
+          const eqIdx = arg.indexOf('=');
+          if (eqIdx === -1) {
+            if (this.aliases && this.aliases.has(arg)) {
+              return { stdout: `alias ${arg}='${this.aliases.get(arg)}'\n`, stderr: '', exitCode: 0 };
+            } else {
+              return { stdout: '', stderr: `alias: ${arg}: not found\n`, exitCode: 1 };
+            }
+          } else {
+            const name = arg.slice(0, eqIdx).trim();
+            let val = arg.slice(eqIdx + 1).trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            this.aliases.set(name, val);
+          }
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+
+      case 'unalias': {
+        if (args.length === 0) {
+          return { stdout: '', stderr: 'unalias: usage: unalias [-a] name [name ...]\n', exitCode: 1 };
+        }
+        if (args[0] === '-a') {
+          this.aliases.clear();
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        let exitCode = 0;
+        let stderr = '';
+        for (const name of args) {
+          if (this.aliases && this.aliases.has(name)) {
+            this.aliases.delete(name);
+          } else {
+            stderr += `unalias: ${name}: not found\n`;
+            exitCode = 1;
+          }
+        }
+        return { stdout: '', stderr, exitCode };
+      }
+
+      case 'defcmd': {
+        if (args.length === 0) {
+          let out = 'Custom commands:\n';
+          for (const [name] of this.customCommands.entries()) {
+            out += `  ${name}\n`;
+          }
+          return { stdout: out, stderr: '', exitCode: 0 };
+        }
+
+        if (args[0] === '--remove' || args[0] === '-d') {
+          const name = args[1];
+          if (!name || !this.customCommands.has(name)) {
+            return { stdout: '', stderr: `defcmd: command '${name}' not found\n`, exitCode: 1 };
+          }
+          this.customCommands.delete(name);
+          try {
+            if (this.vfs.exists(`/bin/${name}`)) this.vfs.rm(`/bin/${name}`);
+          } catch (e) {}
+          return { stdout: `Command '${name}' removed.\n`, stderr: '', exitCode: 0 };
+        }
+
+        const name = args[0];
+        let isJs = false;
+        let codeStartIdx = 1;
+
+        if (args[1] === '--js') {
+          isJs = true;
+          codeStartIdx = 2;
+        }
+
+        const code = args.slice(codeStartIdx).join(' ');
+        if (!code) {
+          return { stdout: 'Usage: defcmd <name> [--js] <code>\n', stderr: '', exitCode: 1 };
+        }
+
+        if (isJs) {
+          try {
+            const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
+            this.customCommands.set(name, async (cmdArgs, ctx) => {
+              try {
+                const res = await fn(cmdArgs, ctx);
+                if (res && typeof res === 'object') {
+                  return {
+                    stdout: res.stdout || '',
+                    stderr: res.stderr || '',
+                    exitCode: typeof res.exitCode === 'number' ? res.exitCode : 0
+                  };
+                }
+                return { stdout: String(res ?? '') + '\n', stderr: '', exitCode: 0 };
+              } catch (err) {
+                return { stdout: '', stderr: `${name}: ${err.message}\n`, exitCode: 1 };
+              }
+            });
+            try {
+              this.vfs.writeFile(`/bin/${name}`, `// @js\n${code}\n`);
+            } catch (e) {}
+          } catch (err) {
+            return { stdout: '', stderr: `defcmd syntax error: ${err.message}\n`, exitCode: 1 };
+          }
+        } else {
+          this.customCommands.set(name, async (cmdArgs) => {
+            let script = code;
+            script = script.replace(/\$0\b/g, name);
+            script = script.replace(/\$#/g, String(cmdArgs.length));
+            script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
+            script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
+              const idx = parseInt(num, 10) - 1;
+              return idx < cmdArgs.length ? cmdArgs[idx] : '';
+            });
+            return await this.exec(script);
+          });
+          try {
+            this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
+          } catch (e) {}
+        }
+
+        return { stdout: `Command '${name}' defined successfully.\n`, stderr: '', exitCode: 0 };
+      }
+
+      case 'sh':
+      case 'bash':
+      case 'source':
+      case '.': {
+        const scriptFile = args[0];
+        if (!scriptFile) {
+          return { stdout: '', stderr: `${cmd}: missing script argument\n`, exitCode: 1 };
+        }
+        const targetPath = this.vfs.resolvePath(scriptFile, this.cwd);
+        if (!this.vfs.exists(targetPath)) {
+          return { stdout: '', stderr: `${cmd}: ${scriptFile}: No such file or directory\n`, exitCode: 1 };
+        }
+        if (this.vfs.stat(targetPath).type === 'dir') {
+          return { stdout: '', stderr: `${cmd}: ${scriptFile}: Is a directory\n`, exitCode: 1 };
+        }
+        const scriptArgs = args.slice(1);
+        return await this._executeScript(targetPath, scriptArgs, stdin);
+      }
+
+      case 'chmod': {
+        if (args.length < 2) {
+          return { stdout: '', stderr: 'chmod: missing operand\n', exitCode: 1 };
+        }
+        const target = args[args.length - 1];
+        const targetPath = this.vfs.resolvePath(target, this.cwd);
+        if (!this.vfs.exists(targetPath)) {
+          return { stdout: '', stderr: `chmod: cannot access '${target}': No such file or directory\n`, exitCode: 1 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      }
+
       case 'which': {
         const target = args[0];
-        if (this.customCommands.has(target) || ['ls', 'cat', 'echo', 'grep', 'wc', 'cd', 'pwd'].includes(target)) {
+        if (!target) return { stdout: '', stderr: 'which: missing argument\n', exitCode: 1 };
+        if (this.aliases && this.aliases.has(target)) {
+          return { stdout: `${target}: aliased to ${this.aliases.get(target)}\n`, stderr: '', exitCode: 0 };
+        }
+        if (this.customCommands.has(target)) {
+          return { stdout: `/bin/${target}\n`, stderr: '', exitCode: 0 };
+        }
+        const pathDirs = (this.env.PATH || '/bin:/usr/bin').split(':');
+        for (const dir of pathDirs) {
+          const candidate = this.vfs.resolvePath(`${dir}/${target}`);
+          if (this.vfs.exists(candidate)) {
+            return { stdout: `${candidate}\n`, stderr: '', exitCode: 0 };
+          }
+        }
+        if (['ls', 'cat', 'echo', 'grep', 'wc', 'cd', 'pwd', 'mkdir', 'rm', 'cp', 'mv', 'awk', 'sed', 'jq', 'sh', 'bash', 'alias', 'defcmd'].includes(target)) {
           return { stdout: `/bin/${target}\n`, stderr: '', exitCode: 0 };
         }
         return { stdout: '', stderr: `${target} not found\n`, exitCode: 1 };
@@ -758,16 +952,19 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         return {
           stdout: `Available built-in commands:
   File Operations:
-    cat, cp, ls, mkdir, mv, rm, stat, touch, tree, find
+    cat, cp, ls, mkdir, mv, rm, stat, touch, tree, find, chmod
   Text Processing:
     awk, base64, cut, grep, head, jq, sed, sort, tail, tr, uniq, wc
   Navigation & Shell:
     cd, clear, date, echo, env, export, false, help, history,
     printf, printenv, pwd, seq, true, which, whoami
+  Scripting & Custom:
+    sh <script>, bash <script>, source <script>, . <script>,
+    alias [name=val], unalias <name>, defcmd <name> [--js] <code>
   Custom Commands:
     about, install, github, webmcp, agent <query>
 
-Type 'about' or 'install' for additional details.\n`,
+Type 'help' or 'defcmd' for custom commands.\n`,
           stderr: '',
           exitCode: 0
         };
@@ -789,8 +986,87 @@ Type 'about' or 'install' for additional details.\n`,
         };
       }
 
-      default:
+      default: {
+        const fileRes = await this._tryExecuteFile(cmd, args, stdin);
+        if (fileRes !== null) {
+          return fileRes;
+        }
         return { stdout: '', stderr: `bash: ${cmd}: command not found\n`, exitCode: 127 };
+      }
     }
+  }
+
+  async _tryExecuteFile(cmd, args, stdin) {
+    let targetPath = null;
+    if (cmd.includes('/')) {
+      const resolved = this.vfs.resolvePath(cmd, this.cwd);
+      if (this.vfs.exists(resolved) && this.vfs.stat(resolved).type === 'file') {
+        targetPath = resolved;
+      }
+    } else {
+      const pathDirs = (this.env.PATH || '/bin:/usr/bin').split(':');
+      for (const dir of pathDirs) {
+        const candidate = this.vfs.resolvePath(`${dir}/${cmd}`);
+        if (this.vfs.exists(candidate) && this.vfs.stat(candidate).type === 'file') {
+          targetPath = candidate;
+          break;
+        }
+      }
+    }
+
+    if (!targetPath) return null;
+    return await this._executeScript(targetPath, args, stdin);
+  }
+
+  async _executeScript(scriptPath, args = [], stdin = '') {
+    const content = this.vfs.readFile(scriptPath);
+
+    // JavaScript script execution
+    if (content.startsWith('#!/usr/bin/env node') || content.startsWith('// @js') || content.startsWith('/* @js */')) {
+      try {
+        const code = content.replace(/^#![^\n]*\n/, '');
+        const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
+        const output = await fn(args, { stdin, cwd: this.cwd, env: this.env, vfs: this.vfs, bash: this });
+        if (output && typeof output === 'object') {
+          return {
+            stdout: output.stdout || '',
+            stderr: output.stderr || '',
+            exitCode: typeof output.exitCode === 'number' ? output.exitCode : 0
+          };
+        }
+        return { stdout: String(output ?? '') + '\n', stderr: '', exitCode: 0 };
+      } catch (e) {
+        return { stdout: '', stderr: `js error in ${scriptPath}: ${e.message}\n`, exitCode: 1 };
+      }
+    }
+
+    // Shell script execution
+    const lines = content.split('\n');
+    let lastResult = { stdout: '', stderr: '', exitCode: 0 };
+    let fullStdout = '';
+    let fullStderr = '';
+
+    for (let rawLine of lines) {
+      let line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+
+      line = line.replace(/\$0\b/g, scriptPath);
+      line = line.replace(/\$#/g, String(args.length));
+      line = line.replace(/\$[@*]/g, args.join(' '));
+      line = line.replace(/\$([1-9][0-9]*)/g, (_, num) => {
+        const idx = parseInt(num, 10) - 1;
+        return idx < args.length ? args[idx] : '';
+      });
+
+      lastResult = await this.exec(line);
+      fullStdout += lastResult.stdout;
+      fullStderr += lastResult.stderr;
+
+      if (lastResult.exitCode !== 0) {
+        return { stdout: fullStdout, stderr: fullStderr, exitCode: lastResult.exitCode };
+      }
+    }
+
+    return { stdout: fullStdout, stderr: fullStderr, exitCode: lastResult.exitCode };
   }
 }

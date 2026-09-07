@@ -67,6 +67,22 @@ export class AgentRunner {
       steps.push({ tool: 'bash_exec', args: { command: searchCmd }, result: execRes });
       onChunk(`\x1b[32m[Observation]\x1b[0m Output:\n${execRes.result?.stdout?.slice(0, 300) || 'Done.'}\n`);
       finalSummary = `Search completed successfully across the virtual filesystem.`;
+    } else if (qLower.includes('command') || qLower.includes('comando') || qLower.includes('create') || qLower.includes('crear') || qLower.includes('register')) {
+      const cmdName = 'custom_' + Date.now().toString(36).slice(-4);
+      onChunk(`\x1b[35m[Tool Call]\x1b[0m bash_register_command({ name: "${cmdName}", type: "bash", code: "echo 'Custom command ${cmdName} executed with arg: $1'" })\n`);
+      const regRes = await this.provider.invokeTool('bash_register_command', {
+        name: cmdName,
+        type: 'bash',
+        code: `echo 'Custom command ${cmdName} executed with arg: $1'`
+      });
+      steps.push({ tool: 'bash_register_command', args: { name: cmdName }, result: regRes });
+      onChunk(`\x1b[32m[Observation]\x1b[0m ${regRes.result?.message || 'Registered.'}\n`);
+
+      onChunk(`\x1b[35m[Tool Call]\x1b[0m bash_exec({ command: "${cmdName} test_arg" })\n`);
+      const testRes = await this.provider.invokeTool('bash_exec', { command: `${cmdName} test_arg` });
+      steps.push({ tool: 'bash_exec', args: { command: `${cmdName} test_arg` }, result: testRes });
+      onChunk(`\x1b[32m[Observation]\x1b[0m Output: ${testRes.result?.stdout?.trim() || 'OK'}\n`);
+      finalSummary = `Successfully created and registered custom command '${cmdName}'. It was verified in the sandbox and is now executable directly in the shell.`;
     } else {
       // Default: Run system probe via bash_exec
       const cmd = 'whoami && pwd && ls -la';
@@ -102,7 +118,7 @@ export class AgentRunner {
     const messages = [
       {
         role: 'system',
-        content: 'You are an autonomous AI coding agent operating inside just-bash. You have full access to virtual tools (bash_exec, fs_read_file, fs_write_file, fs_list_dir). Call tools to inspect and solve the user query.'
+        content: 'You are an autonomous AI coding agent operating inside just-bash. You have full access to virtual tools (bash_exec, fs_read_file, fs_write_file, fs_list_dir, bash_register_command, bash_list_commands). You can create custom commands for the user using bash_register_command or by writing scripts to /bin/.'
       },
       { role: 'user', content: query }
     ];

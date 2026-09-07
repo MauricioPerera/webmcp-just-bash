@@ -24,9 +24,13 @@ tags: ['okf', 'bash', 'interpreter', 'pipeline']
 - **Text Processing**: `grep` (-i, -v, -n, -E), `sort` (-r, -n), `uniq` (-c, -d), `cut` (-d, -f), `tr`, `sed`, `awk`, `base64`.
 - **Data & Shell Utilities**: `jq`, `seq`, `sleep`, `which`, `clear`, `help`, `history`, `true`, `false`.
 
-## Custom Commands
+## Custom Commands & Extensibility
 - `about`: Emits project info and version metadata.
 - `install`: Emits npm installation instructions.
 - `github`: Returns official repository URL.
 - `webmcp`: Displays current WebMCP tools registry and status.
 - `agent <query>`: Triggers client-side autonomous tool-calling agent.
+- `alias [name=val]` / `unalias <name>`: Create and manage persistent shell aliases.
+- `defcmd <name> [--js] <code>`: Define custom shell or JavaScript commands on the fly.
+- `sh <script>` / `bash <script>` / `source <script>` / `./<script>`: Execute shell and node scripts from VFS or `$PATH`.
+

@@ -262,6 +262,103 @@ export class WebMCPProvider {
         };
       }
     });
+
+    // 8. bash_register_command
+    this.registerImperativeTool({
+      name: 'bash_register_command',
+      description: 'Create and register a new custom command into the bash environment. It becomes immediately executable in the shell terminal and pipelines.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Command name (e.g. "wordcount", "calc", "summarize")' },
+          type: { type: 'string', enum: ['bash', 'javascript'], description: 'Command type: "bash" (shell script) or "javascript" (JS function)' },
+          code: { type: 'string', description: 'The shell script body or JavaScript function code' },
+          description: { type: 'string', description: 'Optional brief description of what the command does' }
+        },
+        required: ['name', 'type', 'code']
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false },
+      execute: async ({ name, type = 'bash', code, description = '' }) => {
+        if (!name || typeof name !== 'string') {
+          throw new Error('Command name is required');
+        }
+        if (!code || typeof code !== 'string') {
+          throw new Error('Command code is required');
+        }
+
+        if (type === 'javascript') {
+          const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
+          this.bash.registerCommand(name, async (cmdArgs, ctx) => {
+            try {
+              const res = await fn(cmdArgs, ctx);
+              if (res && typeof res === 'object') {
+                return {
+                  stdout: res.stdout || '',
+                  stderr: res.stderr || '',
+                  exitCode: typeof res.exitCode === 'number' ? res.exitCode : 0
+                };
+              }
+              return { stdout: String(res ?? '') + '\n', stderr: '', exitCode: 0 };
+            } catch (err) {
+              return { stdout: '', stderr: `${name}: ${err.message}\n`, exitCode: 1 };
+            }
+          });
+          try {
+            this.vfs.writeFile(`/bin/${name}`, `// @js\n${code}\n`);
+          } catch (e) {}
+        } else {
+          this.bash.registerCommand(name, async (cmdArgs) => {
+            let script = code;
+            script = script.replace(/\$0\b/g, name);
+            script = script.replace(/\$#/g, String(cmdArgs.length));
+            script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
+            script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
+              const idx = parseInt(num, 10) - 1;
+              return idx < cmdArgs.length ? cmdArgs[idx] : '';
+            });
+            return await this.bash.exec(script);
+          });
+          try {
+            this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
+          } catch (e) {}
+        }
+
+        return {
+          success: true,
+          command: name,
+          type,
+          location: `/bin/${name}`,
+          message: `Command '${name}' registered and saved to /bin/${name}.`
+        };
+      }
+    });
+
+    // 9. bash_list_commands
+    this.registerImperativeTool({
+      name: 'bash_list_commands',
+      description: 'List all available shell builtins, custom commands, and active aliases in the bash sandbox.',
+      inputSchema: {
+        type: 'object',
+        properties: {}
+      },
+      annotations: { readOnlyHint: true },
+      execute: async () => {
+        const custom = Array.from(this.bash.customCommands.keys());
+        const aliases = Object.fromEntries(this.bash.aliases ? this.bash.aliases.entries() : []);
+        let binFiles = [];
+        try {
+          if (this.vfs.exists('/bin')) {
+            binFiles = this.vfs.readDir('/bin');
+          }
+        } catch (e) {}
+
+        return {
+          customCommands: custom,
+          aliases,
+          binExecutables: binFiles
+        };
+      }
+    });
   }
 
   scanDeclarativeTools(container = (typeof document !== 'undefined' ? document : null)) {
