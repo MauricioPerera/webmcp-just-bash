@@ -17,7 +17,7 @@ export const WELCOME_MESSAGE = `
 A simulated bash environment with an in-memory virtual filesystem.
 Designed for AI agents needing a secure, sandboxed bash environment.
 
-\x1b[32m[KDD Protocol]\x1b[0m Level-1 Deterministic CCDD Contracts Verified
+\x1b[32m[KDD Protocol]\x1b[0m Contract structure + SHA-256 checks available; tests are not executed in the browser
 \x1b[32m[FastWebMCP]\x1b[0m document.modelContext & window.webmcp Standard Ready
 
 Custom commands:

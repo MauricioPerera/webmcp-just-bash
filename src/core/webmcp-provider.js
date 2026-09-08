@@ -3,6 +3,9 @@
  * Conforms to CCDD Contract 03 (contract-03-webmcp-bridge.md)
  * Standards: https://webmcp.com & https://mauricioperera.github.io/fastwebmcp/
  */
+import { BashRuntime } from './bash-runtime.js';
+import { validateContract } from './contract-validator.js';
+
 export class WebMCPProvider {
   constructor(vfs, bash) {
     this.vfs = vfs;
@@ -13,6 +16,9 @@ export class WebMCPProvider {
   }
 
   setupPolyfill() {
+    const context = typeof document !== 'undefined' ? document.modelContext : null;
+    this.nativeContext = context && !context.isPolyfill && typeof context.registerTool === 'function' ? context : null;
+    this.nativeRegistrations = new Map();
     const runtime = {
       isPolyfill: true,
       version: '0.4.2',
@@ -57,6 +63,26 @@ export class WebMCPProvider {
     };
 
     this.registry.set(tool.name, toolEntry);
+    // Declarative forms are registered by Chrome itself, not a second time here.
+    if (this.nativeContext && !tool.declarative) {
+      const previous = this.nativeRegistrations.get(tool.name);
+      const registration = Promise.resolve(previous).then(async () => {
+        if (previous) await this.nativeContext.unregisterTool(tool.name);
+        await this.nativeContext.registerTool({
+          name: toolEntry.name,
+          description: toolEntry.description,
+          inputSchema: toolEntry.inputSchema,
+          annotations: toolEntry.annotations,
+          execute: async (args) => {
+            const response = await this.invokeTool(toolEntry.name, args);
+            if (response.status === 'error') throw new Error(response.error);
+            return response.result;
+          }
+        });
+      });
+      this.nativeRegistrations.set(tool.name, registration);
+      registration.catch(error => console.error(`WebMCP registration failed: ${tool.name}`, error));
+    }
     return toolEntry;
   }
 
@@ -89,6 +115,7 @@ export class WebMCPProvider {
         throw new Error(`WebMCP Tool '${name}' not found in registry.`);
       }
 
+      this.validateArguments(tool.inputSchema, args);
       const result = await tool.execute(args);
       const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
       const durationMs = (endTime - startTime).toFixed(2);
@@ -117,6 +144,7 @@ export class WebMCPProvider {
       callLog.error = err.message || String(err);
       callLog.durationMs = durationMs;
       this.callLogs.unshift(callLog);
+      if (this.callLogs.length > 50) this.callLogs.length = 50;
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('webmcp:tool-executed', { detail: callLog }));
@@ -128,6 +156,23 @@ export class WebMCPProvider {
         error: err.message || String(err),
         durationMs
       };
+    }
+  }
+
+  // Validate the subset of JSON Schema used by this application's tools.
+  validateArguments(schema, args) {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+      throw new Error('Tool arguments must be an object');
+    }
+    for (const key of schema.required || []) {
+      if (!Object.hasOwn(args, key)) throw new Error(`Missing required argument: ${key}`);
+    }
+    for (const [key, rule] of Object.entries(schema.properties || {})) {
+      if (!Object.hasOwn(args, key)) continue;
+      if (rule.type && typeof args[key] !== rule.type) {
+        throw new Error(`Invalid type for ${key}: expected ${rule.type}`);
+      }
+      if (rule.enum && !rule.enum.includes(args[key])) throw new Error(`Invalid value for ${key}`);
     }
   }
 
@@ -182,7 +227,7 @@ export class WebMCPProvider {
       annotations: { destructiveHint: false },
       execute: async (args) => {
         this.vfs.writeFile(args.path, args.content, this.bash.cwd);
-        return { success: true, path: args.path, bytesWritten: args.content.length };
+        return { success: true, path: args.path, bytesWritten: new TextEncoder().encode(args.content).length };
       }
     });
 
@@ -243,7 +288,7 @@ export class WebMCPProvider {
     // 7. kdd_validate_contract
     this.registerImperativeTool({
       name: 'kdd_validate_contract',
-      description: 'Run deterministic validation of a CCDD contract against the virtual workspace.',
+      description: 'Validate CCDD contract fields and its frozen test-file SHA-256. Use a repository contract filename or an absolute virtual contract path (oracle under /tests). Returns integrity checks, not test execution or proof of implementation correctness.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -253,12 +298,7 @@ export class WebMCPProvider {
       },
       annotations: { readOnlyHint: true },
       execute: async (args) => {
-        return {
-          contract: args.contractName,
-          status: 'verified',
-          level: 'Level 1 Deterministic Oracle Passed',
-          timestamp: new Date().toISOString()
-        };
+        return await validateContract(args.contractName, this.vfs);
       }
     });
 
@@ -278,8 +318,8 @@ export class WebMCPProvider {
       },
       annotations: { readOnlyHint: false, destructiveHint: false },
       execute: async ({ name, type = 'bash', code, description = '' }) => {
-        if (!name || typeof name !== 'string') {
-          throw new Error('Command name is required');
+        if (typeof name !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$/.test(name)) {
+          throw new Error('Command name must be 1-128 safe filename characters and cannot contain paths');
         }
         if (!code || typeof code !== 'string') {
           throw new Error('Command code is required');
@@ -288,20 +328,17 @@ export class WebMCPProvider {
         if (type !== 'bash') {
           throw new Error('Only virtual bash commands are supported. JavaScript commands are disabled.');
         }
+        // Persist first: a failed write must not register an in-memory command.
+        this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
         this.bash.registerCommand(name, async (cmdArgs) => {
-          let script = code;
-          script = script.replace(/\$0\b/g, name);
-          script = script.replace(/\$#/g, String(cmdArgs.length));
-          script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
-          script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
-            const idx = parseInt(num, 10) - 1;
-            return idx < cmdArgs.length ? cmdArgs[idx] : '';
-          });
-          return await this.bash.exec(script);
+          // Expand parameters only after parsing, never interpolate shell source.
+          // Each invocation gets its own environment to avoid concurrent argument leaks.
+          const child = new BashRuntime(this.vfs, { cwd: this.bash.cwd, env: this.bash.env, agentRunner: this.bash.agentRunner });
+          child.customCommands = new Map(this.bash.customCommands);
+          child.aliases = new Map(this.bash.aliases);
+          child.positionalArgs = [name, ...cmdArgs];
+          return await child.exec(code);
         });
-        try {
-          this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
-        } catch (e) {}
 
         return {
           success: true,
@@ -333,6 +370,7 @@ export class WebMCPProvider {
         } catch (e) {}
 
         return {
+          builtins: this.bash.listBuiltins(),
           customCommands: custom,
           aliases,
           binExecutables: binFiles
@@ -365,6 +403,7 @@ export class WebMCPProvider {
 
       this.registerImperativeTool({
         name,
+        declarative: true,
         description: desc,
         inputSchema: { type: 'object', properties, required },
         execute: async (args) => {

@@ -171,7 +171,14 @@ window.addEventListener('DOMContentLoaded', () => {
   const runBashForm = document.getElementById('run-bash-form');
   runBashForm?.addEventListener('submit', (event) => {
     event.preventDefault();
-    window.quickRunCommand(runBashForm.elements.command?.value || '');
+    const result = webmcp.invokeTool('run_bash', { command: runBashForm.elements.command?.value || '' }).then(response => {
+      if (response.status === 'error') throw new Error(response.error);
+      window.switchTab('terminal');
+      term.writeln(response.result.stdout || response.result.stderr || '(no output)');
+      return response.result;
+    });
+    if (event.agentInvoked && typeof event.respondWith === 'function') event.respondWith(result);
+    else result.catch(error => term.writeln(error.message));
   });
 
   // Expose singletons for debugging in console or testing

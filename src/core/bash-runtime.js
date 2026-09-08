@@ -77,6 +77,10 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     this.customCommands.set(name, fn);
   }
 
+  listBuiltins() {
+    return ['echo', 'printf', 'pwd', 'cd', 'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'sort', 'uniq', 'cut', 'tr', 'sed', 'awk', 'jq', 'tree', 'find', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'stat', 'env', 'printenv', 'export', 'whoami', 'date', 'clear', 'true', 'false', 'seq', 'base64', 'alias', 'unalias', 'defcmd', 'sh', 'bash', 'source', '.', 'chmod', 'which', 'help', 'wrangler', 'agent'];
+  }
+
   // Tokenize string taking quotes and escapes into account
   _tokenize(line) {
     const tokens = [];
@@ -157,6 +161,18 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
 
   // Expand environment variables: $VAR, ${VAR}, $?, $PWD, $HOME (and restore protected $)
   _expandVariables(str) {
+    if (this.positionalArgs) {
+      // Replacement values are data and are not recursively expanded.
+      return str.replace(/\$(?:\{([A-Za-z0-9_]+)\}|([A-Za-z0-9_]+)|[?@$#*])/g, (match, g1, g2) => {
+        const key = g1 || g2;
+        if (match === '$@' || match === '$*') return this.positionalArgs.slice(1).join(' ');
+        if (match === '$#') return String(this.positionalArgs.length - 1);
+        if (key && /^\d+$/.test(key)) return this.positionalArgs[Number(key)] ?? '';
+        if (match === '$?') return String(this.lastExitCode);
+        if (match === '$$') return '1000';
+        return this.env[key] ?? '';
+      }).replace(/\uFFF0/g, '$');
+    }
     const expanded = str.replace(/\$(?:\{([A-Za-z0-9_]+)\}|([A-Za-z0-9_]+)|\?|\$)/g, (match, g1, g2) => {
       if (match === '$?') return String(this.lastExitCode);
       if (match === '$$') return '1000';

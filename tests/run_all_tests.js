@@ -8,6 +8,9 @@ const testSuites = [
   'tests/test_agent.js',
   'tests/test_custom_commands.js',
   'tests/test_security.js',
+  'tests/test_tool_regressions.js',
+  'tests/test_native_webmcp.js',
+  'tests/test_contract_validator.js',
   'tests/e2e_stress_test.js'
 ];
 
