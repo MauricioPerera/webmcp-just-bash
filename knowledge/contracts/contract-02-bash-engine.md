@@ -13,7 +13,7 @@ budget:
   max_cyclomatic_complexity: 15
 tests: "tests/test_bash.js"
 touch_only: ["src/core/bash-runtime.js"]
-tests_sha256: "3f5a8c943987bb5e6f7a3ded22b246f1512409ec2bd0d9c7adf5f7218ac66cb9"
+tests_sha256: "6e08d2ed05b1a319db80634fcf735b36c80b5c4a60745b66150b110799e1e09d"
 deps_allowed: ["src/core/vfs.js"]
 ---
 

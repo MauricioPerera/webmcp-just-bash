@@ -183,7 +183,7 @@ export class LiteTerminal {
     const cwd = this.bash ? this.bash.cwd : this.cwd;
     const displayCwd = cwd === '/home/user' ? '~' : (cwd.startsWith('/home/user/') ? '~' + cwd.slice(10) : cwd);
     if (this.promptElement) {
-      this.promptElement.innerHTML = `<span class="text-cyan-400 font-bold">user@just-bash</span>:<span class="text-teal-300">${displayCwd}</span>$ `;
+      this.promptElement.textContent = `user@just-bash:${displayCwd}$ `;
     }
   }
 

@@ -3,30 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.openai.com https://openrouter.ai https://api.groq.com; object-src 'none'; base-uri 'self'; form-action 'self'" />
   <title>just-bash | 100% Client-Side In-Memory Bash & WebMCP Environment</title>
   <meta name="description" content="A 100% functional, client-side clone of vercel-labs/just-bash with Tailwind, HTMX, KDD, and FastWebMCP standards." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐚</text></svg>" />
   
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: ['selector', '[data-theme="dark"]'],
-      theme: {
-        extend: {
-          colors: {
-            cyan: {
-              400: '#0AC5B3',
-              500: '#089485',
-            },
-            teal: {
-              300: '#3DD9C8',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <script src="./src/styles/tailwind-config.js"></script>
 
   <!-- HTMX CDN -->
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
@@ -65,7 +49,7 @@
 
       <!-- Actions & External Links -->
       <div class="flex items-center gap-2 sm:gap-3 text-xs font-mono">
-        <button onclick="toggleTheme()" class="p-1.5 rounded border border-[#30363d] hover:border-gray-500 text-gray-400 hover:text-white transition" title="Toggle Dark/Light Theme">
+        <button data-action="toggle-theme" class="p-1.5 rounded border border-[#30363d] hover:border-gray-500 text-gray-400 hover:text-white transition" title="Toggle Dark/Light Theme">
           🌓
         </button>
         <a href="https://mauricioperera.github.io/fastwebmcp/" target="_blank" rel="noreferrer"
@@ -180,19 +164,19 @@
 
       <!-- Workbench View Switcher Tabs -->
       <nav class="flex items-center gap-1 text-xs font-mono bg-[#161b22] p-1 rounded-lg border border-[#30363d]">
-        <button id="tab-btn-terminal" onclick="switchTab('terminal')" class="px-3 py-1.5 rounded transition tab-active text-gray-300 hover:bg-gray-800">
+        <button id="tab-btn-terminal" data-action="switch-tab" data-tab="terminal" class="px-3 py-1.5 rounded transition tab-active text-gray-300 hover:bg-gray-800">
           🖥️ Terminal
         </button>
-        <button id="tab-btn-explorer" onclick="switchTab('explorer')" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
+        <button id="tab-btn-explorer" data-action="switch-tab" data-tab="explorer" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
           📁 VFS Tree
         </button>
-        <button id="tab-btn-webmcp" onclick="switchTab('webmcp')" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
+        <button id="tab-btn-webmcp" data-action="switch-tab" data-tab="webmcp" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
           ⚡ WebMCP Tools
         </button>
-        <button id="tab-btn-kdd" onclick="switchTab('kdd')" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
+        <button id="tab-btn-kdd" data-action="switch-tab" data-tab="kdd" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
           📜 KDD Contracts
         </button>
-        <button id="tab-btn-settings" onclick="switchTab('settings')" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
+        <button id="tab-btn-settings" data-action="switch-tab" data-tab="settings" class="px-3 py-1.5 rounded transition text-gray-400 hover:bg-gray-800">
           ⚙️ AI Settings
         </button>
       </nav>
@@ -213,7 +197,7 @@
           <div class="flex items-center gap-3 text-xs font-mono text-gray-400">
             <span>Tab = Autocomplete</span>
             <span>&uarr;&darr; = History</span>
-            <button onclick="window.quickRunCommand('clear')" class="hover:text-cyan-400 underline">clear</button>
+            <button data-action="quick-run" data-command="clear" class="hover:text-cyan-400 underline">clear</button>
           </div>
         </div>
 
@@ -224,17 +208,17 @@
       <!-- Quick Command Runner Toolbar -->
       <div class="mt-3 flex flex-wrap items-center gap-2 text-xs font-mono">
         <span class="text-gray-500 text-[11px] uppercase tracking-wider">Quick Commands:</span>
-        <button onclick="quickRunCommand('about')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-cyan-400 hover:bg-gray-800 transition">about</button>
-        <button onclick="quickRunCommand('install')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-cyan-400 hover:bg-gray-800 transition">install</button>
-        <button onclick="quickRunCommand('ls -la')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">ls -la</button>
-        <button onclick="quickRunCommand('cat README.md')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">cat README.md</button>
-        <button onclick="quickRunCommand('tree')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">tree</button>
-        <button onclick="quickRunCommand('cat package.json | jq .dependencies')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">jq .dependencies</button>
-        <button onclick="quickRunCommand('webmcp')" class="px-2.5 py-1 rounded bg-teal-950/70 border border-teal-700 text-teal-300 hover:bg-teal-900 transition">webmcp</button>
-        <button onclick="quickRunCommand('alias ll=\'ls -la\' &amp;&amp; ll')" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">alias ll</button>
-        <button onclick="quickRunCommand('defcmd greet \'echo Hello $1! Welcome to just-bash.\' &amp;&amp; greet Developer')" class="px-2.5 py-1 rounded bg-purple-950/70 border border-purple-700 text-purple-300 hover:bg-purple-900 transition">defcmd greet</button>
-        <button onclick="quickRunCommand('wrangler whoami')" class="px-2.5 py-1 rounded bg-orange-950/70 border border-orange-700 text-orange-300 hover:bg-orange-900 transition">wrangler whoami</button>
-        <button onclick="quickRunCommand('agent &quot;What is just-bash and what tools are exposed?&quot;')" class="px-2.5 py-1 rounded bg-cyan-950/70 border border-cyan-700 text-cyan-300 hover:bg-cyan-900 transition">
+        <button data-action="quick-run" data-command="about" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-cyan-400 hover:bg-gray-800 transition">about</button>
+        <button data-action="quick-run" data-command="install" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-cyan-400 hover:bg-gray-800 transition">install</button>
+        <button data-action="quick-run" data-command="ls -la" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">ls -la</button>
+        <button data-action="quick-run" data-command="cat README.md" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">cat README.md</button>
+        <button data-action="quick-run" data-command="tree" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">tree</button>
+        <button data-action="quick-run" data-command="cat package.json | jq .dependencies" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">jq .dependencies</button>
+        <button data-action="quick-run" data-command="webmcp" class="px-2.5 py-1 rounded bg-teal-950/70 border border-teal-700 text-teal-300 hover:bg-teal-900 transition">webmcp</button>
+        <button data-action="quick-run" data-command="alias ll='ls -la' &amp;&amp; ll" class="px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-gray-300 hover:bg-gray-800 transition">alias ll</button>
+        <button data-action="quick-run" data-command="defcmd greet 'echo Hello $1! Welcome to just-bash.' &amp;&amp; greet Developer" class="px-2.5 py-1 rounded bg-purple-950/70 border border-purple-700 text-purple-300 hover:bg-purple-900 transition">defcmd greet</button>
+        <button data-action="quick-run" data-command="wrangler whoami" class="px-2.5 py-1 rounded bg-orange-950/70 border border-orange-700 text-orange-300 hover:bg-orange-900 transition">wrangler whoami</button>
+        <button data-action="quick-run" data-command="agent &quot;What is just-bash and what tools are exposed?&quot;" class="px-2.5 py-1 rounded bg-cyan-950/70 border border-cyan-700 text-cyan-300 hover:bg-cyan-900 transition">
           agent &ldquo;What is just-bash?&rdquo;
         </button>
       </div>
@@ -249,7 +233,7 @@
             <h2 class="font-mono font-bold text-sm text-cyan-400">Virtual File System (VFS) Tree</h2>
           </div>
           <div class="flex gap-2">
-            <button onclick="quickRunCommand('touch /home/user/note_' + Date.now() + '.txt')" class="text-xs font-mono px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200">
+            <button data-action="new-note" class="text-xs font-mono px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200">
               + New File
             </button>
           </div>
@@ -283,8 +267,7 @@
             <h3 class="font-mono font-bold text-xs text-cyan-400 mb-2 uppercase tracking-wide">
               Declarative WebMCP Form &mdash; <code class="text-gray-300">&lt;form toolname="run_bash"&gt;</code>
             </h3>
-            <form toolname="run_bash" tooldescription="Execute a bash command in the virtual sandbox"
-                  onsubmit="event.preventDefault(); const val = this.command.value; quickRunCommand(val);" class="space-y-2">
+            <form id="run-bash-form" toolname="run_bash" tooldescription="Execute a bash command in the virtual sandbox" class="space-y-2">
               <div class="flex gap-2">
                 <input name="command" toolparamdescription="Bash command string"
                        placeholder="e.g. echo 'Hello from declarative form' | wc -w"
@@ -355,7 +338,7 @@
             <label class="block text-gray-300 font-semibold mb-1">Agent Execution Mode:</label>
             <p class="text-gray-400 text-[11px] mb-2">
               By default, the agent runs in <strong>Offline Autonomous Heuristic Mode</strong> (zero server, zero cost, streams tool calls locally).
-              To use real frontier models in the browser, provide an API key below (saved only in your browser's <code class="text-teal-300">localStorage</code>).
+              To use real frontier models in the browser, provide an API key below. It is kept only in memory for the current tab and is cleared when the page closes.
             </p>
           </div>
 
@@ -382,10 +365,10 @@
           </div>
 
           <div class="flex gap-2 pt-2">
-            <button onclick="saveAgentSettings()" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold">
+            <button type="button" data-action="save-agent-settings" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold">
               Save Settings
             </button>
-            <button onclick="localStorage.removeItem('justbash_agent_api_key'); alert('API Key cleared. Reverted to offline agent.');" class="px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 text-gray-300">
+            <button type="button" data-action="clear-agent-settings" class="px-3 py-2 rounded bg-gray-800 hover:bg-gray-700 text-gray-300">
               Clear Key (Use Offline)
             </button>
           </div>
@@ -556,7 +539,7 @@
          toolparamdescription="Bash command string" /&gt;
   &lt;button type="submit"&gt;Run&lt;/button&gt;
 &lt;/form&gt;</code></pre>
-            <button onclick="copySnippet('snippet-form', this)" class="absolute top-2 right-2 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 transition">Copy</button>
+            <button data-action="copy-snippet" data-snippet="snippet-form" class="absolute top-2 right-2 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 transition">Copy</button>
           </div>
           <p class="text-gray-400 font-sans text-xs">
             WebMCP automatically scans the document, parses form fields as parameter schemas, and registers them into the agent tool registry.
@@ -583,7 +566,7 @@ document.modelContext.registerImperativeTool({
     return vfs.readFile(path);
   }
 });</code></pre>
-            <button onclick="copySnippet('snippet-imperative', this)" class="absolute top-2 right-2 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 transition">Copy</button>
+            <button data-action="copy-snippet" data-snippet="snippet-imperative" class="absolute top-2 right-2 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-[10px] text-gray-300 transition">Copy</button>
           </div>
           <p class="text-gray-400 font-sans text-xs">
             Conforms strictly to standard tool schema validation rules (regex: <code>^[A-Za-z0-9_.-]{1,128}$</code>).
@@ -707,7 +690,7 @@ document.modelContext.registerImperativeTool({
         <div class="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden font-mono text-xs">
           <div class="px-4 py-2.5 bg-[#1c2128] border-b border-[#30363d] flex items-center justify-between">
             <span class="text-gray-300 font-semibold">1. Drop-in HTML Script Embed</span>
-            <button onclick="copySnippet('snippet-embed', this)" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
+            <button data-action="copy-snippet" data-snippet="snippet-embed" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
           </div>
           <pre class="p-4 text-gray-300 overflow-x-auto text-[12px]" id="snippet-embed"><code>&lt;!-- Include Terminal Container --&gt;
 &lt;div id="terminal-container" style="height: 400px;"&gt;&lt;/div&gt;
@@ -720,7 +703,7 @@ document.modelContext.registerImperativeTool({
         <div class="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden font-mono text-xs">
           <div class="px-4 py-2.5 bg-[#1c2128] border-b border-[#30363d] flex items-center justify-between">
             <span class="text-gray-300 font-semibold">2. Programmatic Usage (ES Modules)</span>
-            <button onclick="copySnippet('snippet-programmatic', this)" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
+            <button data-action="copy-snippet" data-snippet="snippet-programmatic" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
           </div>
           <pre class="p-4 text-gray-300 overflow-x-auto text-[12px]" id="snippet-programmatic"><code>import { VirtualFS } from './src/core/vfs.js';
 import { BashRuntime } from './src/core/bash-runtime.js';
@@ -737,7 +720,7 @@ console.log(await vfs.readFile('/home/user/greeting.txt')); // "HELLO WORLD\n"</
         <div class="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden font-mono text-xs">
           <div class="px-4 py-2.5 bg-[#1c2128] border-b border-[#30363d] flex items-center justify-between">
             <span class="text-gray-300 font-semibold">3. Clone and Run Locally</span>
-            <button onclick="copySnippet('snippet-local', this)" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
+            <button data-action="copy-snippet" data-snippet="snippet-local" class="px-2.5 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition">Copy</button>
           </div>
           <pre class="p-4 text-gray-300 overflow-x-auto text-[12px]" id="snippet-local"><code># Clone repository
 git clone https://github.com/MauricioPerera/webmcp-just-bash.git

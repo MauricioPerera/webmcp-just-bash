@@ -502,16 +502,13 @@ async function runBattery() {
   });
 
   await asyncCheck('Agent: online LLM failure triggers graceful fallback to offline runner', async () => {
-    // Mock invalid API key in localStorage
-    globalThis.localStorage = {
-      getItem: (k) => {
-        if (k === 'justbash_agent_api_key') return 'invalid_test_key_sk_123';
-        if (k === 'justbash_agent_provider') return 'openai';
-        return null;
-      }
-    };
+    // Configure an invalid in-memory key; browser storage is never used for secrets.
+    agent.setApiKeyConfig({ key: 'invalid_test_key_sk_123', provider: 'openai' });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('Simulated provider failure', { status: 503 });
 
     const chunks = [];
+    try {
     const res = await agent.runQuery('What is just-bash?', {
       onChunk: (c) => chunks.push(c)
     });
@@ -521,7 +518,10 @@ async function runBattery() {
     assert.ok(hasFallbackWarning, 'Should log fallback warning');
     assert.ok(res.response.includes('just-bash'), 'Should return offline response');
 
-    delete globalThis.localStorage;
+    } finally {
+      globalThis.fetch = originalFetch;
+      agent.setApiKeyConfig(null);
+    }
   });
 
   // =========================================================================

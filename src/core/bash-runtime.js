@@ -2,8 +2,6 @@
  * bash-runtime.js - Pure Client-Side Bash Execution Engine
  * Conforms to CCDD Contract 02 (contract-02-bash-engine.md)
  */
-import { CloudflareTemporaryDeployer } from './cloudflare-temporary.js';
-
 export class BashRuntime {
   constructor(vfs, options = {}) {
     this.vfs = vfs;
@@ -489,7 +487,16 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
 
         if (rest.length === 0) return { stdout: '', stderr: 'grep: search pattern required\n', exitCode: 2 };
         const patternStr = rest[0];
-        const pattern = new RegExp(patternStr, ignoreCase ? 'i' : '');
+        let pattern;
+        try {
+          pattern = new RegExp(patternStr, ignoreCase ? 'i' : '');
+        } catch (error) {
+          return {
+            stdout: '',
+            stderr: `grep: invalid regular expression: ${error.message}\n`,
+            exitCode: 2
+          };
+        }
         let text = rest.length > 1 ? this.vfs.readFile(rest[1], this.cwd) : stdin;
 
         const matched = [];
@@ -571,8 +578,16 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         const match = expr.match(/^s\/(.*?)\/(.*?)\/([gimsuy]*)$/);
         if (match) {
           const [, pattern, repl, flags] = match;
-          const regex = new RegExp(pattern, flags);
-          return { stdout: stdin.replace(regex, repl), stderr: '', exitCode: 0 };
+          try {
+            const regex = new RegExp(pattern, flags);
+            return { stdout: stdin.replace(regex, repl), stderr: '', exitCode: 0 };
+          } catch (error) {
+            return {
+              stdout: '',
+              stderr: `sed: invalid regular expression: ${error.message}\n`,
+              exitCode: 2
+            };
+          }
         }
         return { stdout: stdin, stderr: '', exitCode: 0 };
       }
@@ -853,29 +868,11 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         }
 
         if (isJs) {
-          try {
-            const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
-            this.customCommands.set(name, async (cmdArgs, ctx) => {
-              try {
-                const res = await fn(cmdArgs, ctx);
-                if (res && typeof res === 'object') {
-                  return {
-                    stdout: res.stdout || '',
-                    stderr: res.stderr || '',
-                    exitCode: typeof res.exitCode === 'number' ? res.exitCode : 0
-                  };
-                }
-                return { stdout: String(res ?? '') + '\n', stderr: '', exitCode: 0 };
-              } catch (err) {
-                return { stdout: '', stderr: `${name}: ${err.message}\n`, exitCode: 1 };
-              }
-            });
-            try {
-              this.vfs.writeFile(`/bin/${name}`, `// @js\n${code}\n`);
-            } catch (e) {}
-          } catch (err) {
-            return { stdout: '', stderr: `defcmd syntax error: ${err.message}\n`, exitCode: 1 };
-          }
+          return {
+            stdout: '',
+            stderr: 'defcmd: JavaScript commands are disabled; use the virtual bash language instead.\n',
+            exitCode: 1
+          };
         } else {
           this.customCommands.set(name, async (cmdArgs) => {
             let script = code;
@@ -963,7 +960,7 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     sh <script>, bash <script>, source <script>, . <script>,
     alias [name=val], unalias <name>, defcmd <name> [--js] <code>
   Cloud & Autonomous Agents:
-    wrangler deploy --temporary [script.js], agent <query>
+    agent <query>
   Platform Commands:
     about, install, github, webmcp
 
@@ -976,14 +973,12 @@ Type 'help' or 'defcmd' for custom commands.\n`,
       case 'wrangler': {
         if (!args.length || args[0] === '--help' || args[0] === '-h') {
           return {
-            stdout: `Cloudflare Wrangler CLI (Autonomous Agent & Client-Side Sandbox Edition)
+            stdout: `Cloudflare Wrangler CLI (disabled in this browser demo)
 
 Usage:
-  wrangler deploy --temporary [script.js]    Deploy worker to a 60-min temporary Cloudflare account
-  wrangler whoami                           Display current credentials state
+  wrangler whoami                           Explain deployment status
 
-Options:
-  --temporary    Provision an unauthenticated throwaway preview account and return claim URL
+Deployment is intentionally unavailable from this browser sandbox.
 \n`,
             stderr: '',
             exitCode: 0
@@ -992,82 +987,18 @@ Options:
 
         if (args[0] === 'whoami') {
           return {
-            stdout: `🔓 Unauthenticated Agent Sandbox Mode (Zero permanent credentials stored)
-Ready for: wrangler deploy --temporary\n`,
+            stdout: `Cloudflare deployment is disabled in this browser demo.\n`,
             stderr: '',
             exitCode: 0
           };
         }
 
         if (args[0] === 'deploy') {
-          if (!args.includes('--temporary')) {
-            return {
-              stdout: '',
-              stderr: `wrangler: in agent sandbox mode, please specify '--temporary' to deploy to a temporary Cloudflare preview account.\nUsage: wrangler deploy --temporary [file.js]\n`,
-              exitCode: 1
-            };
-          }
-
-          let scriptFile = args.find(a => !a.startsWith('-') && a !== 'deploy');
-          if (!scriptFile) {
-            if (this.vfs.exists(this.vfs.resolvePath('index.js', this.cwd))) {
-              scriptFile = 'index.js';
-            } else if (this.vfs.exists(this.vfs.resolvePath('worker.js', this.cwd))) {
-              scriptFile = 'worker.js';
-            } else {
-              return {
-                stdout: '',
-                stderr: 'wrangler deploy: missing entry script (could not find index.js or worker.js in current directory)\n',
-                exitCode: 1
-              };
-            }
-          }
-
-          const targetPath = this.vfs.resolvePath(scriptFile, this.cwd);
-          if (!this.vfs.exists(targetPath)) {
-            return { stdout: '', stderr: `wrangler: ${scriptFile}: No such file or directory\n`, exitCode: 1 };
-          }
-
-          const scriptCode = this.vfs.readFile(targetPath);
-          let scriptBaseName = scriptFile.split('/').pop().replace(/\.[^/.]+$/, '');
-          if (['api', 'app', 'test', 'admin', 'auth', 'login', 'dev'].includes(scriptBaseName.toLowerCase())) {
-            scriptBaseName = `agent-${scriptBaseName}`;
-          }
-          const scriptName = scriptBaseName || 'agent-worker';
-
-          try {
-            let apiBaseUrl = 'https://api.cloudflare.com/client/v4';
-            if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('pages.dev')) {
-              apiBaseUrl = '/api/cf-proxy';
-            }
-
-            const deployer = new CloudflareTemporaryDeployer({ apiBaseUrl });
-            const result = await deployer.deployTemporary({
-              scriptName,
-              code: scriptCode
-            });
-
-            return {
-              stdout: `
-✨ Worker desplegado con éxito en Cloudflare Temporary Account!
-─────────────────────────────────────────────────────────────────────────────
-📦 Worker Name:  ${result.scriptName}
-🏢 Account Name: ${result.accountName} (${result.accountId})
-🌍 Live URL:     ${result.liveUrl} (Activo durante 60 minutos)
-🔑 Claim URL:    ${result.claimUrl}
-─────────────────────────────────────────────────────────────────────────────
-💡 Puedes transferir este Worker a tu cuenta permanente de Cloudflare abriendo la Claim URL en tu navegador.
-\n`,
-              stderr: '',
-              exitCode: 0
-            };
-          } catch (err) {
-            return {
-              stdout: '',
-              stderr: `wrangler deploy error: ${err.message}\n`,
-              exitCode: 1
-            };
-          }
+          return {
+            stdout: '',
+            stderr: 'wrangler deploy --temporary is disabled in this demo. Use an authenticated deployment service outside the browser.\n',
+            exitCode: 1
+          };
         }
 
         return {
@@ -1128,23 +1059,13 @@ Ready for: wrangler deploy --temporary\n`,
   async _executeScript(scriptPath, args = [], stdin = '') {
     const content = this.vfs.readFile(scriptPath);
 
-    // JavaScript script execution
+    // JavaScript source is intentionally not executable in this browser origin.
     if (content.startsWith('#!/usr/bin/env node') || content.startsWith('// @js') || content.startsWith('/* @js */')) {
-      try {
-        const code = content.replace(/^#![^\n]*\n/, '');
-        const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
-        const output = await fn(args, { stdin, cwd: this.cwd, env: this.env, vfs: this.vfs, bash: this });
-        if (output && typeof output === 'object') {
-          return {
-            stdout: output.stdout || '',
-            stderr: output.stderr || '',
-            exitCode: typeof output.exitCode === 'number' ? output.exitCode : 0
-          };
-        }
-        return { stdout: String(output ?? '') + '\n', stderr: '', exitCode: 0 };
-      } catch (e) {
-        return { stdout: '', stderr: `js error in ${scriptPath}: ${e.message}\n`, exitCode: 1 };
-      }
+      return {
+        stdout: '',
+        stderr: `JavaScript execution is disabled in the virtual shell (${scriptPath}).\n`,
+        exitCode: 126
+      };
     }
 
     // Shell script execution

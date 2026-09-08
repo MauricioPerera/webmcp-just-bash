@@ -25,6 +25,15 @@ async function run() {
   assert.equal(res.exitCode, 0);
   assert.equal(res.stdout.trim(), 'line 2');
 
+  // Invalid regular expressions must behave as command errors, never throw.
+  res = await bash.exec('grep "[" myfile.txt');
+  assert.equal(res.exitCode, 2);
+  assert.match(res.stderr, /invalid regular expression/);
+
+  res = await bash.exec('sed "s/[//" < myfile.txt');
+  assert.equal(res.exitCode, 2);
+  assert.match(res.stderr, /invalid regular expression/);
+
   // Test 4: Pipe and wc -l
   res = await bash.exec('cat myfile.txt | wc -l');
   assert.equal(res.exitCode, 0);

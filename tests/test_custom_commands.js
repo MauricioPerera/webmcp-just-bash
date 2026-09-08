@@ -50,15 +50,12 @@ webmcp.initDefaultTools();
   console.log('  [PASS 3] defcmd bash script creation and execution passed');
 }
 
-// 4. defcmd JavaScript syntax
+// 4. JavaScript commands are deliberately blocked
 {
   const defJs = await bash.exec('defcmd multiply --js "const [a, b] = args.map(Number); return { stdout: (a * b) + \'\\n\', exitCode: 0 };"');
-  assert.strictEqual(defJs.exitCode, 0);
-
-  const mulRes = await bash.exec('multiply 6 7');
-  assert.strictEqual(mulRes.exitCode, 0);
-  assert.strictEqual(mulRes.stdout.trim(), '42');
-  console.log('  [PASS 4] defcmd JavaScript command creation and execution passed');
+  assert.strictEqual(defJs.exitCode, 1);
+  assert.match(defJs.stderr, /JavaScript commands are disabled/);
+  console.log('  [PASS 4] defcmd JavaScript execution is disabled');
 }
 
 // 5. defcmd removal
@@ -98,15 +95,15 @@ webmcp.initDefaultTools();
 {
   const regRes = await webmcp.invokeTool('bash_register_command', {
     name: 'mcp_calc',
-    type: 'javascript',
-    code: 'return { stdout: "CALC: " + (Number(args[0]) + 10) + "\\n", exitCode: 0 };',
-    description: 'Adds 10 to input number'
+    type: 'bash',
+    code: 'echo "CALC: $1"',
+    description: 'Echoes a number using the virtual shell'
   });
   assert.strictEqual(regRes.status, 'success');
   assert.strictEqual(regRes.result.command, 'mcp_calc');
 
   // Verify it can be executed from bash
-  const execRes = await bash.exec('mcp_calc 32');
+  const execRes = await bash.exec('mcp_calc 42');
   assert.strictEqual(execRes.exitCode, 0);
   assert.strictEqual(execRes.stdout.trim(), 'CALC: 42');
   console.log('  [PASS 8] FastWebMCP bash_register_command tool verified');

@@ -31,6 +31,6 @@ tags: ['okf', 'bash', 'interpreter', 'pipeline']
 - `webmcp`: Displays current WebMCP tools registry and status.
 - `agent <query>`: Triggers client-side autonomous tool-calling agent.
 - `alias [name=val]` / `unalias <name>`: Create and manage persistent shell aliases.
-- `defcmd <name> [--js] <code>`: Define custom shell or JavaScript commands on the fly.
+- `defcmd <name> <code>`: Define a custom command in the virtual shell language.
 - `sh <script>` / `bash <script>` / `source <script>` / `./<script>`: Execute shell and node scripts from VFS or `$PATH`.
 

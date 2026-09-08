@@ -6,15 +6,23 @@
 export class AgentRunner {
   constructor(webmcpProvider) {
     this.provider = webmcpProvider;
+    this.apiKeyConfig = null;
+  }
+
+  setApiKeyConfig(config) {
+    if (!config?.key) {
+      this.apiKeyConfig = null;
+      return;
+    }
+    this.apiKeyConfig = {
+      key: config.key,
+      provider: config.provider || 'openai',
+      model: config.model || ''
+    };
   }
 
   getApiKeyConfig() {
-    if (typeof localStorage === 'undefined') return null;
-    const key = localStorage.getItem('justbash_agent_api_key');
-    const provider = localStorage.getItem('justbash_agent_provider') || 'anthropic';
-    const model = localStorage.getItem('justbash_agent_model') || 'claude-3-5-haiku-latest';
-    if (!key) return null;
-    return { key, provider, model };
+    return this.apiKeyConfig;
   }
 
   async runQuery(query, options = {}) {

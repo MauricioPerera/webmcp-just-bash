@@ -120,13 +120,59 @@ window.addEventListener('DOMContentLoaded', () => {
     const providerSelect = document.getElementById('agent-provider');
     const modelInput = document.getElementById('agent-model');
 
-    if (keyInput) localStorage.setItem('justbash_agent_api_key', keyInput.value.trim());
-    if (providerSelect) localStorage.setItem('justbash_agent_provider', providerSelect.value);
-    if (modelInput) localStorage.setItem('justbash_agent_model', modelInput.value.trim());
+    agent.setApiKeyConfig({
+      key: keyInput?.value.trim(),
+      provider: providerSelect?.value,
+      model: modelInput?.value.trim()
+    });
 
-    alert('Agent settings saved! Real AI LLM mode enabled.');
+    alert('Agent settings enabled for this browser tab only.');
     window.switchTab('terminal');
   };
+
+  window.clearAgentSettings = () => {
+    agent.setApiKeyConfig(null);
+    const keyInput = document.getElementById('agent-api-key');
+    if (keyInput) keyInput.value = '';
+    alert('API key cleared from this tab.');
+  };
+
+  document.addEventListener('click', (event) => {
+    const control = event.target.closest('[data-action]');
+    if (!control) return;
+
+    switch (control.dataset.action) {
+      case 'toggle-theme':
+        window.toggleTheme();
+        break;
+      case 'switch-tab':
+        window.switchTab(control.dataset.tab);
+        break;
+      case 'quick-run':
+        window.quickRunCommand(control.dataset.command);
+        break;
+      case 'new-note':
+        window.quickRunCommand(`touch /home/user/note_${Date.now()}.txt`);
+        break;
+      case 'save-agent-settings':
+        window.saveAgentSettings();
+        break;
+      case 'clear-agent-settings':
+        window.clearAgentSettings();
+        break;
+      case 'copy-snippet':
+        window.copySnippet(control.dataset.snippet, control);
+        break;
+      default:
+        break;
+    }
+  });
+
+  const runBashForm = document.getElementById('run-bash-form');
+  runBashForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    window.quickRunCommand(runBashForm.elements.command?.value || '');
+  });
 
   // Expose singletons for debugging in console or testing
   window.__justbash = { vfs, bash, webmcp, agent, term };

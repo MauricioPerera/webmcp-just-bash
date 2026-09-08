@@ -38,7 +38,7 @@ This project is 100% static client-side:
 
 - **Autonomous Client-Side AI Agent (`agent`)**:
   - **Offline Heuristic Mode**: Streams multi-step reasoning and tool calls (`bash_exec`, `fs_read_file`, `fs_list_dir`) directly in the terminal with zero network calls and zero cost.
-  - **Online BYOK Mode**: Optional support to input an API key (OpenAI, Anthropic, Groq, OpenRouter) saved exclusively in browser `localStorage` to execute real LLM tool-calling loops in the browser.
+  - **Online BYOK Mode**: Optional support to input an API key (OpenAI, Anthropic, Groq, OpenRouter) held only in memory for the current tab to execute real LLM tool-calling loops in the browser.
 
 ---
 

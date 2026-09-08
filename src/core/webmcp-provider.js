@@ -3,8 +3,6 @@
  * Conforms to CCDD Contract 03 (contract-03-webmcp-bridge.md)
  * Standards: https://webmcp.com & https://mauricioperera.github.io/fastwebmcp/
  */
-import { CloudflareTemporaryDeployer } from './cloudflare-temporary.js';
-
 export class WebMCPProvider {
   constructor(vfs, bash) {
     this.vfs = vfs;
@@ -272,8 +270,8 @@ export class WebMCPProvider {
         type: 'object',
         properties: {
           name: { type: 'string', description: 'Command name (e.g. "wordcount", "calc", "summarize")' },
-          type: { type: 'string', enum: ['bash', 'javascript'], description: 'Command type: "bash" (shell script) or "javascript" (JS function)' },
-          code: { type: 'string', description: 'The shell script body or JavaScript function code' },
+          type: { type: 'string', enum: ['bash'], description: 'Command type. Only the virtual bash language is supported.' },
+          code: { type: 'string', description: 'The virtual shell script body' },
           description: { type: 'string', description: 'Optional brief description of what the command does' }
         },
         required: ['name', 'type', 'code']
@@ -287,42 +285,23 @@ export class WebMCPProvider {
           throw new Error('Command code is required');
         }
 
-        if (type === 'javascript') {
-          const fn = new Function('args', 'context', `return (async () => {\n${code}\n})();`);
-          this.bash.registerCommand(name, async (cmdArgs, ctx) => {
-            try {
-              const res = await fn(cmdArgs, ctx);
-              if (res && typeof res === 'object') {
-                return {
-                  stdout: res.stdout || '',
-                  stderr: res.stderr || '',
-                  exitCode: typeof res.exitCode === 'number' ? res.exitCode : 0
-                };
-              }
-              return { stdout: String(res ?? '') + '\n', stderr: '', exitCode: 0 };
-            } catch (err) {
-              return { stdout: '', stderr: `${name}: ${err.message}\n`, exitCode: 1 };
-            }
-          });
-          try {
-            this.vfs.writeFile(`/bin/${name}`, `// @js\n${code}\n`);
-          } catch (e) {}
-        } else {
-          this.bash.registerCommand(name, async (cmdArgs) => {
-            let script = code;
-            script = script.replace(/\$0\b/g, name);
-            script = script.replace(/\$#/g, String(cmdArgs.length));
-            script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
-            script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
-              const idx = parseInt(num, 10) - 1;
-              return idx < cmdArgs.length ? cmdArgs[idx] : '';
-            });
-            return await this.bash.exec(script);
-          });
-          try {
-            this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
-          } catch (e) {}
+        if (type !== 'bash') {
+          throw new Error('Only virtual bash commands are supported. JavaScript commands are disabled.');
         }
+        this.bash.registerCommand(name, async (cmdArgs) => {
+          let script = code;
+          script = script.replace(/\$0\b/g, name);
+          script = script.replace(/\$#/g, String(cmdArgs.length));
+          script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
+          script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
+            const idx = parseInt(num, 10) - 1;
+            return idx < cmdArgs.length ? cmdArgs[idx] : '';
+          });
+          return await this.bash.exec(script);
+        });
+        try {
+          this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
+        } catch (e) {}
 
         return {
           success: true,
@@ -361,32 +340,6 @@ export class WebMCPProvider {
       }
     });
 
-    // 10. cloudflare_deploy_temporary
-    this.registerImperativeTool({
-      name: 'cloudflare_deploy_temporary',
-      description: 'Provision an ephemeral Cloudflare preview account and deploy a live Cloudflare Worker for 60 minutes without requiring login or API tokens. Returns the live URL and claim URL.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          script: { type: 'string', description: 'JavaScript code of the Cloudflare Worker to deploy' },
-          name: { type: 'string', description: 'Optional name for the worker (e.g. "my-api")' }
-        },
-        required: ['script']
-      },
-      annotations: { readOnlyHint: false, destructiveHint: false },
-      execute: async ({ script, name = 'agent-worker' }) => {
-        let apiBaseUrl = 'https://api.cloudflare.com/client/v4';
-        if (typeof window !== 'undefined' && window.location && window.location.hostname.includes('pages.dev')) {
-          apiBaseUrl = '/api/cf-proxy';
-        }
-        const deployer = new CloudflareTemporaryDeployer({ apiBaseUrl });
-        const result = await deployer.deployTemporary({
-          scriptName: name,
-          code: script
-        });
-        return result;
-      }
-    });
   }
 
   scanDeclarativeTools(container = (typeof document !== 'undefined' ? document : null)) {
