@@ -3,7 +3,6 @@
  * Conforms to CCDD Contract 03 (contract-03-webmcp-bridge.md)
  * Standards: https://webmcp.com & https://mauricioperera.github.io/fastwebmcp/
  */
-import { BashRuntime } from './bash-runtime.js';
 import { validateContract } from './contract-validator.js';
 
 export class WebMCPProvider {
@@ -333,11 +332,7 @@ export class WebMCPProvider {
         this.bash.registerCommand(name, async (cmdArgs) => {
           // Expand parameters only after parsing, never interpolate shell source.
           // Each invocation gets its own environment to avoid concurrent argument leaks.
-          const child = new BashRuntime(this.vfs, { cwd: this.bash.cwd, env: this.bash.env, agentRunner: this.bash.agentRunner });
-          child.customCommands = new Map(this.bash.customCommands);
-          child.aliases = new Map(this.bash.aliases);
-          child.positionalArgs = [name, ...cmdArgs];
-          return await child.exec(code);
+          return await this.bash.execWithArguments(code, name, cmdArgs);
         });
 
         return {

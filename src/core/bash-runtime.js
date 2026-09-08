@@ -87,15 +87,23 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     let current = '';
     let inSingle = false;
     let inDouble = false;
+    let hasWord = false;
+    const flush = () => {
+      if (hasWord) tokens.push({ value: current });
+      current = '';
+      hasWord = false;
+    };
 
     for (let i = 0; i < line.length; i++) {
       const char = line[i];
 
       if (char === "'" && !inDouble) {
+        hasWord = true;
         inSingle = !inSingle;
         continue;
       }
       if (char === '"' && !inSingle) {
+        hasWord = true;
         inDouble = !inDouble;
         continue;
       }
@@ -103,30 +111,33 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         const nextChar = line[i + 1];
         if (inDouble) {
           if (nextChar === '"' || nextChar === '\\' || nextChar === '$' || nextChar === '`') {
-            current += nextChar;
+            current += nextChar === '$' ? '\uFFF0' : nextChar;
+            hasWord = true;
             i++;
             continue;
           }
         } else if (!inSingle) {
-          current += nextChar;
+          if (nextChar === '\n') { i++; continue; }
+          current += nextChar === '$' ? '\uFFF0' : nextChar;
+          hasWord = true;
           i++;
           continue;
         }
       }
 
       if (!inSingle && !inDouble) {
-        if (char === ' ' || char === '\t') {
-          if (current.length > 0) {
-            tokens.push(current);
-            current = '';
-          }
+        if (char === '#' && !hasWord) {
+          while (i < line.length && line[i] !== '\n') i++;
+          if (i < line.length) tokens.push(';');
           continue;
         }
+        if (char === ' ' || char === '\t' || char === '\r') {
+          flush();
+          continue;
+        }
+        if (char === '\n') { flush(); tokens.push(';'); continue; }
         if (char === '|' || char === ';' || char === '>' || char === '<' || char === '&') {
-          if (current.length > 0) {
-            tokens.push(current);
-            current = '';
-          }
+          flush();
           if (char === '|' && line[i + 1] === '|') {
             tokens.push('||');
             i++;
@@ -148,19 +159,23 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
 
       // In single quotes, escape $ with sentinel \uFFF0 so it is not expanded at runtime
       if (inSingle && char === '$') {
+        hasWord = true;
         current += '\uFFF0';
         continue;
       }
 
       current += char;
+      hasWord = true;
     }
 
-    if (current.length > 0) tokens.push(current);
+    if (inSingle || inDouble) throw new Error('Unterminated shell quote');
+    flush();
     return tokens;
   }
 
   // Expand environment variables: $VAR, ${VAR}, $?, $PWD, $HOME (and restore protected $)
   _expandVariables(str) {
+    if (typeof str === 'object') str = str.value;
     if (this.positionalArgs) {
       // Replacement values are data and are not recursively expanded.
       return str.replace(/\$(?:\{([A-Za-z0-9_]+)\}|([A-Za-z0-9_]+)|[?@$#*])/g, (match, g1, g2) => {
@@ -230,7 +245,9 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     }
 
     this.history.push(commandLine);
-    const tokens = this._tokenize(commandLine);
+    let tokens;
+    try { tokens = this._tokenize(commandLine); }
+    catch (error) { return { stdout: '', stderr: error.message + '\n', exitCode: 2 }; }
     const statements = this._parseStatements(tokens);
 
     let totalStdout = '';
@@ -269,13 +286,13 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
       if (t === '>' && i + 1 < tokens.length) {
-        redirectFile = tokens[++i];
+        redirectFile = this._expandVariables(tokens[++i]);
         append = false;
       } else if (t === '>>' && i + 1 < tokens.length) {
-        redirectFile = tokens[++i];
+        redirectFile = this._expandVariables(tokens[++i]);
         append = true;
       } else if (t === '<' && i + 1 < tokens.length) {
-        const srcFile = tokens[++i];
+        const srcFile = this._expandVariables(tokens[++i]);
         try {
           stdin = this.vfs.readFile(srcFile, this.cwd);
         } catch (e) {
@@ -298,7 +315,7 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
     // 1. Alias expansion
     if (this.aliases && this.aliases.has(cmdName)) {
       const aliasVal = this.aliases.get(cmdName);
-      const aliasTokens = this._tokenize(aliasVal);
+      const aliasTokens = this._tokenize(aliasVal).map(t => this._expandVariables(t));
       if (aliasTokens.length > 0) {
         cmdName = aliasTokens[0];
         args = aliasTokens.slice(1).concat(args);
@@ -477,9 +494,9 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
         }
 
         const content = files.length > 0 ? this.vfs.readFile(files[0], this.cwd) : stdin;
-        const lines = content === '' ? 0 : content.split('\n').filter(Boolean).length;
+        const lines = (content.match(/\n/g) || []).length;
         const words = content.trim() === '' ? 0 : content.trim().split(/\s+/).length;
-        const bytes = content.length;
+        const bytes = new TextEncoder().encode(content).length;
 
         const parts = [];
         if (countLines) parts.push(String(lines));
@@ -890,20 +907,13 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
             exitCode: 1
           };
         } else {
-          this.customCommands.set(name, async (cmdArgs) => {
-            let script = code;
-            script = script.replace(/\$0\b/g, name);
-            script = script.replace(/\$#/g, String(cmdArgs.length));
-            script = script.replace(/\$[@*]/g, cmdArgs.join(' '));
-            script = script.replace(/\$([1-9][0-9]*)/g, (_, num) => {
-              const idx = parseInt(num, 10) - 1;
-              return idx < cmdArgs.length ? cmdArgs[idx] : '';
-            });
-            return await this.exec(script);
-          });
+          if (!/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,127}$/.test(name)) {
+            return { stdout: '', stderr: 'defcmd: invalid command name\n', exitCode: 2 };
+          }
           try {
             this.vfs.writeFile(`/bin/${name}`, `#!/bin/sh\n${code}\n`);
-          } catch (e) {}
+          } catch (e) { return { stdout: '', stderr: e.message + '\n', exitCode: 1 }; }
+          this.customCommands.set(name, async cmdArgs => this.execWithArguments(code, name, cmdArgs));
         }
 
         return { stdout: `Command '${name}' defined successfully.\n`, stderr: '', exitCode: 0 };
@@ -925,7 +935,7 @@ ${tools.map(t => `  - ${t.name}: ${t.description}`).join('\n') || '  (No tools r
           return { stdout: '', stderr: `${cmd}: ${scriptFile}: Is a directory\n`, exitCode: 1 };
         }
         const scriptArgs = args.slice(1);
-        return await this._executeScript(targetPath, scriptArgs, stdin);
+        return await this._executeScript(targetPath, scriptArgs, stdin, cmd === 'source' || cmd === '.');
       }
 
       case 'chmod': {
@@ -1072,7 +1082,7 @@ Deployment is intentionally unavailable from this browser sandbox.
     return await this._executeScript(targetPath, args, stdin);
   }
 
-  async _executeScript(scriptPath, args = [], stdin = '') {
+  async _executeScript(scriptPath, args = [], stdin = '', shared = false) {
     const content = this.vfs.readFile(scriptPath);
 
     // JavaScript source is intentionally not executable in this browser origin.
@@ -1084,33 +1094,20 @@ Deployment is intentionally unavailable from this browser sandbox.
       };
     }
 
-    // Shell script execution
-    const lines = content.split('\n');
-    let lastResult = { stdout: '', stderr: '', exitCode: 0 };
-    let fullStdout = '';
-    let fullStderr = '';
+    return this.execWithArguments(content, scriptPath, args, shared);
+  }
 
-    for (let rawLine of lines) {
-      let line = rawLine.trim();
-      if (!line || line.startsWith('#')) continue;
-
-      line = line.replace(/\$0\b/g, scriptPath);
-      line = line.replace(/\$#/g, String(args.length));
-      line = line.replace(/\$[@*]/g, args.join(' '));
-      line = line.replace(/\$([1-9][0-9]*)/g, (_, num) => {
-        const idx = parseInt(num, 10) - 1;
-        return idx < args.length ? args[idx] : '';
-      });
-
-      lastResult = await this.exec(line);
-      fullStdout += lastResult.stdout;
-      fullStderr += lastResult.stderr;
-
-      if (lastResult.exitCode !== 0) {
-        return { stdout: fullStdout, stderr: fullStderr, exitCode: lastResult.exitCode };
-      }
+  async execWithArguments(code, name, args, shared = false) {
+    if (shared) {
+      const previous = this.positionalArgs;
+      this.positionalArgs = [name, ...args];
+      try { return await this.exec(code); }
+      finally { this.positionalArgs = previous; }
     }
-
-    return { stdout: fullStdout, stderr: fullStderr, exitCode: lastResult.exitCode };
+    const child = new BashRuntime(this.vfs, { cwd: this.cwd, env: this.env, agentRunner: this.agentRunner });
+    child.customCommands = new Map(this.customCommands);
+    child.aliases = new Map(this.aliases);
+    child.positionalArgs = [name, ...args];
+    return child.exec(code);
   }
 }

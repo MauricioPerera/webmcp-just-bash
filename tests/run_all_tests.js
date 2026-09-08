@@ -11,6 +11,7 @@ const testSuites = [
   'tests/test_tool_regressions.js',
   'tests/test_native_webmcp.js',
   'tests/test_contract_validator.js',
+  'tests/test_shell_regressions.js',
   'tests/e2e_stress_test.js'
 ];
 

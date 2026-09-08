@@ -39,9 +39,12 @@ when available; `run_bash` is registered only by the browser's declarative form 
 Without native support, the local registry remains usable but does not prove
 browser interoperability. Native tool errors reject instead of claiming success.
 
-WebMCP-registered commands use a separate shell environment per invocation and
+WebMCP-registered commands, defcmd commands and script files use a separate shell environment per invocation and
 expand positional arguments after parsing instead of interpolating shell source.
 Changes to their working directory and environment do not persist to the parent.
 The virtual shell is not full Bash: `$@` and `$*` currently join arguments into one
-string, and filesystem changes remain shared. This hardening is scoped to the
-WebMCP registration path, not a claim of complete shell compatibility or isolation.
+string, and filesystem changes remain shared. The `source`/`.` commands intentionally
+share the calling environment, restoring positional parameters after execution;
+concurrent source calls against one shell are not isolated from each other.
+Quoted operators remain data through parsing. Newlines delimit commands only
+outside quotes. This is not a claim of complete shell compatibility or isolation.
